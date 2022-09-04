@@ -8,7 +8,10 @@
 #include <windows.h>
 #include <dwmapi.h>
 #include <math.h>
+#include <xinput.h>
+#include <stdio.h>
 #include "gui.h"
+#include "game.cpp"
 #include "tree.cpp"
 
 //Global variables
@@ -16,6 +19,27 @@ global_variable bool Running = true;
 global_variable offscreen_buffer BackBuffer;
 global_variable Node * Tree;
 global_variable game_state global_game;
+global_variable s64 GlobalPerfCountFrequency;
+
+UINT DesiredSchedularMS = 1;
+b32 SleepIsGrandular = (timeBeginPeriod(DesiredSchedularMS) == TIMERR_NOERROR);
+
+inline LARGE_INTEGER GetWallClock(){
+  LARGE_INTEGER Result;
+  QueryPerformanceCounter(&Result);
+  return Result;
+}
+
+internal void ProcessXInputButton(DWORD XInputButtonState, button_state *OldState, DWORD ButtonBit, button_state *NewState)
+{
+  NewState->EndedDown = ((XInputButtonState & ButtonBit) == ButtonBit);
+  NewState->HalfTransitionCount = (OldState->EndedDown != NewState->EndedDown) ? 1 : 0;
+}
+
+inline f32 GetSecondsElapsed(LARGE_INTEGER Start, LARGE_INTEGER End){
+  f32 Result = (f32)(End.QuadPart - Start.QuadPart)/(f32)GlobalPerfCountFrequency;
+  return Result;
+}
 
 
 //Function definations
@@ -62,17 +86,17 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
 				     0, 0, Instance, 0 );
     
   //Window init finish
-
+    
   RECT rect;
   GetWindowRect(WindowHandle, &rect);
   int width = rect.right - rect.left;
   int height = rect.bottom - rect.top;
-
+    
   ResizeBuffer(&BackBuffer, width , height);
-
-
+    
+    
   u32 tiles[TILE_DIMENTION][TILE_DIMENTION] = {};
-
+    
   //Game State initilize
   global_game.meter_to_pixel        = 30;
   f32 TileSizeInPixels = height /  TILE_DIMENTION;
@@ -83,21 +107,51 @@ int CALLBACK WinMain(HINSTANCE Instance, HINSTANCE PrevInstance,
   global_game.tile_offset_in_meters = 0.1f;
   global_game.head_x = 4;
   global_game.head_y = 4;
-
+    
+  LARGE_INTEGER PerfCountFrequencyResult;
+  QueryPerformanceFrequency(&PerfCountFrequencyResult);
+  GlobalPerfCountFrequency = PerfCountFrequencyResult.QuadPart;
+    
+  //DisplayTree(&global_game, Tree);
+    
+  LARGE_INTEGER LastCounter = GetWallClock();
+  f32 SecondsPerFrame       = 0.0333;
+    
   while(Running){
     ProcessWindowMessages();
 	
     HDC DeviceContext = GetDC(WindowHandle);
 
-
-    //DisplayTree(&global_game, Tree);
-
+    //XInput stuffs
+	
     RenderGame(&BackBuffer, &global_game);
-
-
+	
     DisplayBufferInWindow(&BackBuffer, DeviceContext);
 	
     DwmFlush();
+	
+    /** Custom framerate code
+	f32 SecondsElapsed = GetSecondsElapsed(LastCounter, GetWallClock());;
+    
+	if(SecondsElapsed < SecondsPerFrame){
+	DWORD SleepMs = (DWORD)(1000.0f * (SecondsPerFrame - SecondsElapsed));
+    
+	if(SleepMs > 0){
+	Sleep(SleepMs);
+	}
+	}
+    
+	LARGE_INTEGER WorkCounter = GetWallClock();
+	s64 CounterElapsed = WorkCounter.QuadPart - LastCounter.QuadPart;
+	f32 FPS = (f32)GlobalPerfCountFrequency / (f32)CounterElapsed;
+    
+	char DebugSoundBuffer[256];
+	_snprintf_s(DebugSoundBuffer, sizeof(DebugSoundBuffer), "FPS: %3fs\n",FPS);
+    
+	OutputDebugStringA(DebugSoundBuffer);
+    
+	LastCounter = GetWallClock();
+    **/
   }
   return 0;
 }
@@ -121,14 +175,10 @@ void ProcessWindowMessages(){
       u32 VKCode = (u32)Message.wParam;
       b32 AltKeyWasDown = ((Message.lParam & (1 << 29)) != 0);
 		
-      if(VKCode == 'E'){
-	PaintBuffer(&BackBuffer, 1,0,1);
-      }
-		
       if ((VKCode == VK_F4) && AltKeyWasDown){
 	Running = false;
       }
-
+		
       if(VKCode == VK_RIGHT && IsDown && !WasDown){
 	u32 Color = ((u8)roundf(1 * 255.0f) << 16) |
 	  ((u8)roundf(0 * 255.0f) << 8)  |
@@ -157,7 +207,7 @@ LRESULT CALLBACK WindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM
 	
   case WM_PAINT:{
 	    
-
+	    
     PAINTSTRUCT Paint;
 	    
     HDC DeviceContext = BeginPaint(Window, &Paint);
@@ -166,10 +216,10 @@ LRESULT CALLBACK WindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM
     GetWindowRect(Window, &rect);
     int width = rect.right - rect.left;
     int height = rect.bottom - rect.top;
-
+	    
     f32 TileSizeInPixels = height /  TILE_DIMENTION;
     global_game.tile_size_in_meters   = TileSizeInPixels/global_game.meter_to_pixel;
-
+	    
     ResizeBuffer(&BackBuffer, width , height);
     PaintBuffer(&BackBuffer, 0,0,0);
     DrawGrid(&BackBuffer, &global_game);
@@ -184,7 +234,7 @@ LRESULT CALLBACK WindowCallback(HWND Window, UINT Message, WPARAM WParam, LPARAM
   case WM_DESTROY:{
     Running = false;
   }break;
-
+	
   default:
     {
       Result = DefWindowProc(Window, Message, WParam, LParam);
@@ -230,7 +280,7 @@ void DisplayBufferInWindow(offscreen_buffer *Buffer, HDC DeviceContext){
 }
 
 void DisplayTree(game_state *GameState, Node * tree){
-
+    
   Node * curr = Tree;
   while(curr != NULL){
   }
@@ -249,7 +299,7 @@ void PaintBuffer(offscreen_buffer * Buffer, f32 R, f32 G, f32 B){
   u8 * Row = (u8*)Buffer->Memory; 
 	
   u32 Color = DenormalizeColor(R, G, B);
-
+    
   for( int y = 0; y < Buffer->Height ; y++){
 	
     for( int x = 0; x < Buffer->Width; x++){
@@ -264,7 +314,7 @@ void PaintBuffer(offscreen_buffer * Buffer, f32 R, f32 G, f32 B){
 
 void DrawRectangle(offscreen_buffer * Buffer, u32 MinX,
 		   u32 MinY, u32 MaxX, u32 MaxY, u32 Color){
-
+    
   if(MinX <0){
     MinX = 0;
   }
@@ -279,62 +329,62 @@ void DrawRectangle(offscreen_buffer * Buffer, u32 MinX,
   if(MaxY > Buffer->Height){
     MaxY = Buffer->Height;
   }
-
+    
   //Pitch has bytePerPixel
   u8 *Row = (u8*)Buffer->Memory + MinY * Buffer->Pitch + MinX * Buffer->BytesPerPixel;
-
+    
   for(u32 Y = MinY; Y < MaxY ; Y++){
-
+	
     u32* Pixels = (u32 *)Row;
-
+	
     for(u32 X = MinX; X < MaxX; X++){
-
+	    
       *Pixels++ = Color;
     }
-
+	
     Row += Buffer->Pitch;
   }
 	
 }
 
 void DrawGrid(offscreen_buffer * Buffer, game_state * GameState){
-
+    
   f32 tile_size_in_pixels = GameState->meter_to_pixel * GameState->tile_size_in_meters;
-
+    
   u32 Color = GameState->tile_color;
-
+    
   f32 Padding = (Buffer->Width - Buffer->Height)/2;
-
-    for(u32 X = 0; X < GameState->tile_dimention + 1; X++){
-
-      u32 MinY = X * tile_size_in_pixels;
-      u32 MinX = Padding;
-
-      u32 MaxY = MinY + 2;
-      u32 MaxX = Padding + tile_size_in_pixels * GameState->tile_dimention;
-      DrawRectangle(Buffer, MinX, MinY, MaxX, MaxY, Color);
-      DrawRectangle(Buffer, MinY + Padding, MinX - Padding, MaxY + Padding, MaxX - Padding, Color);
-    }
+    
+  for(u32 X = 0; X < GameState->tile_dimention + 1; X++){
+	
+    u32 MinY = X * tile_size_in_pixels;
+    u32 MinX = Padding;
+	
+    u32 MaxY = MinY + 2;
+    u32 MaxX = Padding + tile_size_in_pixels * GameState->tile_dimention;
+    DrawRectangle(Buffer, MinX, MinY, MaxX, MaxY, Color);
+    DrawRectangle(Buffer, MinY + Padding, MinX - Padding, MaxY + Padding, MaxX - Padding, Color);
+  }
 }
 
 
 void RenderGame(offscreen_buffer * Buffer, game_state * GameState){
   f32 tile_size_in_pixels = GameState->meter_to_pixel * GameState->tile_size_in_meters;
-
+    
   u32 Color = GameState->tile_color;
-
+    
   f32 Padding = (Buffer->Width - Buffer->Height)/2;
-
+    
   for(u32 Y = 0; Y < GameState->tile_dimention; Y++){
-
+	
     for(u32 X = 0; X < GameState->tile_dimention; X++){
-
+	    
       u32 MinY = Y * tile_size_in_pixels;
       u32 MinX = X * tile_size_in_pixels + Padding;
-
+	    
       u32 MaxY = MinY + tile_size_in_pixels;
       u32 MaxX = MinX + tile_size_in_pixels;
-
+	    
       if((Y + X % 2) % 2==0){
 	//DrawRectangle(Buffer, MinX, MinY, MaxX, MaxY, Color);
       }else{

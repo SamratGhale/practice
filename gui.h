@@ -59,5 +59,40 @@ struct game_state{
   u32 head_y;
 };
 
+struct button_state{
+  s32 HalfTransitionCount;
+  b32 EndedDown;
+};
+
+
+struct controller_input{
+  b32 IsConnected;
+  b32 IsAnalog;
+	
+  f32 StickAverageX;
+  f32 StickAverageY;
+	
+  union{
+    button_state Buttons[12];
+    struct{
+      button_state MoveUp;
+      button_state MoveDown;
+      button_state MoveLeft;
+      button_state MoveRight;
+			
+      button_state ActionUp;
+      button_state ActionDown;
+      button_state ActionLeft;
+      button_state ActionRight;
+			
+      button_state LeftShoulder;
+      button_state RightShoulder;
+			
+      button_state Back;
+      button_state Start;
+    };
+  };
+};
+
 #define GUI_H
 #endif
