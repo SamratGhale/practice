@@ -4,8 +4,8 @@ struct Node{
   u32 Color;
   Node * next;
 
-  Node(u32 Color);
-  void set_last(u32 Color);
+  Node(u32);
+  void set_last(u32 );
   void remove_last();
 };
 
